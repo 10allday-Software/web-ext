@@ -71,6 +71,7 @@ export type FirefoxAndroidExtensionRunnerParams = {|
   adbPort?: string,
   adbDevice?: string,
   adbDiscoveryTimeout?: number,
+  adbRemoveOldArtifacts?: boolean,
   firefoxApk?: string,
   firefoxApkComponent?: string,
 
@@ -88,9 +89,9 @@ export type FirefoxAndroidExtensionRunnerParams = {|
  */
 export class FirefoxAndroidExtensionRunner {
   // Wait 3s before the next unix socket discovery loop.
-  static unixSocketDiscoveryRetryInterval = 3 * 1000;
+  static unixSocketDiscoveryRetryInterval: number = 3 * 1000;
   // Wait for at most 3 minutes before giving up.
-  static unixSocketDiscoveryMaxTime = 3 * 60 * 1000;
+  static unixSocketDiscoveryMaxTime: number = 3 * 60 * 1000;
 
   params: FirefoxAndroidExtensionRunnerParams;
   adbUtils: DefaultADBUtils;
@@ -167,7 +168,7 @@ export class FirefoxAndroidExtensionRunner {
   /**
    * Returns the runner name.
    */
-  getName() {
+  getName(): string {
     return 'Firefox Android';
   }
 
@@ -431,6 +432,7 @@ export class FirefoxAndroidExtensionRunner {
       params: {
         customPrefs,
         firefoxApp,
+        adbRemoveOldArtifacts,
       },
     } = this;
     // Create the preferences file and the Fennec temporary profile.
@@ -440,6 +442,24 @@ export class FirefoxAndroidExtensionRunner {
       app: 'fennec',
       customPrefs,
     });
+
+    // Check if there are any artifacts dirs from previous runs and
+    // automatically remove them if adbRemoteOldArtifacts is true.
+    const foundOldArtifacts = await adbUtils.detectOrRemoveOldArtifacts(
+      selectedAdbDevice, adbRemoveOldArtifacts
+    );
+
+    if (foundOldArtifacts) {
+      if (adbRemoveOldArtifacts) {
+        log.info('Old web-ext artifacts have been found and removed ' +
+          `from ${selectedAdbDevice} device`);
+      } else {
+        log.warn(
+          `Old artifacts directories have been found on ${selectedAdbDevice} ` +
+          'device. Use --adb-remove-old-artifacts to remove them automatically.'
+        );
+      }
+    }
 
     // Choose a artifacts dir name for the assets pushed to the
     // Android device.
@@ -562,14 +582,6 @@ export class FirefoxAndroidExtensionRunner {
     }
 
     try {
-      const msg = (
-        `Waiting for ${selectedFirefoxApk} Remote Debugging Server...` +
-        '\nMake sure to enable "Remote Debugging via USB" ' +
-        'from Settings -> Developer Tools if it is not yet enabled.'
-      );
-
-      log.info(`\n${msg}\n`);
-
       // Got a debugger socket file to connect.
       this.selectedRDPSocketFile = (
         await adbUtils.discoverRDPUnixSocket(

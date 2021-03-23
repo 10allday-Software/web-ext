@@ -130,6 +130,7 @@ function prepareSelectedDeviceAndAPKParams(
     startFirefoxAPK: sinon.spy(() => Promise.resolve()),
     setupForward: sinon.spy(() => Promise.resolve()),
     clearArtifactsDir: sinon.spy(() => Promise.resolve()),
+    detectOrRemoveOldArtifacts: sinon.spy(() => Promise.resolve(true)),
     setUserAbortDiscovery: sinon.spy(() => {}),
     ensureRequiredAPKRuntimePermissions: sinon.spy(() => Promise.resolve()),
     ...adbOverrides,
@@ -356,6 +357,88 @@ describe('util/extension-runners/firefox-android', () => {
            fakeADBUtils.startFirefoxAPK
          );
        });
+
+    it('does check for existing artifacts dirs', async () => {
+      const adbOverrides = {
+        getOrCreateArtifactsDir: sinon.spy(
+          () => Promise.resolve('/data/local/tmp/web-ext-dir')
+        ),
+        detectOrRemoveOldArtifacts: sinon.spy(() => Promise.resolve(false)),
+      };
+      const overriddenProperties = {
+        params: {
+          adbDevice: 'emulator-1',
+          firefoxApk: 'org.mozilla.firefox',
+          buildSourceDir: sinon.spy(() => Promise.resolve({
+            extensionPath: fakeBuiltExtensionPath,
+          })),
+          adbRemoveOldArtifacts: false,
+        },
+      };
+      const {
+        params, fakeADBUtils,
+      } = prepareSelectedDeviceAndAPKParams(
+        overriddenProperties, adbOverrides
+      );
+
+      const runnerInstance = new FirefoxAndroidExtensionRunner(params);
+      await runnerInstance.run();
+
+      sinon.assert.calledWithMatch(
+        fakeADBUtils.detectOrRemoveOldArtifacts,
+        'emulator-1',
+        false,
+      );
+
+      // Ensure the old artifacts are checked or removed after stopping the
+      // apk and before creating the new artifacts dir.
+      sinon.assert.callOrder(
+        fakeADBUtils.amForceStopAPK,
+        fakeADBUtils.detectOrRemoveOldArtifacts,
+        fakeADBUtils.getOrCreateArtifactsDir
+      );
+    });
+
+    it('does optionally remove older artifacts dirs', async () => {
+      const adbOverrides = {
+        getOrCreateArtifactsDir: sinon.spy(
+          () => Promise.resolve('/data/local/tmp/web-ext-dir')
+        ),
+        detectOrRemoveOldArtifacts: sinon.spy(() => Promise.resolve(true)),
+      };
+      const overriddenProperties = {
+        params: {
+          adbDevice: 'emulator-1',
+          firefoxApk: 'org.mozilla.firefox',
+          buildSourceDir: sinon.spy(() => Promise.resolve({
+            extensionPath: fakeBuiltExtensionPath,
+          })),
+          adbRemoveOldArtifacts: true,
+        },
+      };
+      const {
+        params, fakeADBUtils,
+      } = prepareSelectedDeviceAndAPKParams(
+        overriddenProperties, adbOverrides
+      );
+
+      const runnerInstance = new FirefoxAndroidExtensionRunner(params);
+      await runnerInstance.run();
+
+      sinon.assert.calledWithMatch(
+        fakeADBUtils.detectOrRemoveOldArtifacts,
+        'emulator-1',
+        true,
+      );
+
+      // Ensure the old artifacts are checked or removed after stopping the
+      // apk and before creating the new artifacts dir.
+      sinon.assert.callOrder(
+        fakeADBUtils.amForceStopAPK,
+        fakeADBUtils.detectOrRemoveOldArtifacts,
+        fakeADBUtils.getOrCreateArtifactsDir
+      );
+    });
 
     it('does run a specific apk component if specific', async () => {
       const {
@@ -945,27 +1028,6 @@ describe('util/extension-runners/firefox-android', () => {
 
       consoleStream.stopCapturing();
     });
-
-    it(
-      'does tell user to enable Remote Debugging when running Fenix',
-      async () => {
-        const {params, fakeADBUtils} = prepareSelectedDeviceAndAPKParams();
-        params.firefoxApk = 'org.mozilla.fenix.nightly';
-        fakeADBUtils.getAndroidVersionNumber = async () => 23;
-
-        consoleStream.startCapturing();
-        const runner = new FirefoxAndroidExtensionRunner(params);
-        await runner.run();
-
-        assert.match(
-          consoleStream.capturedMessages.join('\n'),
-          /Make sure to enable "Remote Debugging via USB"/
-        );
-
-        consoleStream.flushCapturedLogs();
-        consoleStream.stopCapturing();
-      }
-    );
 
   });
 
